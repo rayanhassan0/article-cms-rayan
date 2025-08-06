@@ -62,7 +62,7 @@ def post(id):
     )
 
 
-# ✅ تم تعديلها لمنع توليد state مرتين
+# ✅ إصلاح مشكلة إعادة توليد state
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
@@ -80,9 +80,9 @@ def login():
 
     form = LoginForm()
 
-    # ✅ توليد state فقط إذا غير موجود
     if "state" not in session:
         session["state"] = str(uuid.uuid4())
+        session.modified = False  # ✅ تجميد الجلسة لمنع إعادة التوليد
 
     auth_url = _build_auth_url(scopes=Config.SCOPE, state=session["state"])
     print("➡️ [LOGIN] Redirecting to Microsoft with state:", session["state"])
