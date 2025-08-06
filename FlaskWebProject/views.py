@@ -62,7 +62,7 @@ def post(id):
     )
 
 
-# ✅ تم تعديلها لإظهار session و state
+# ✅ تم تعديلها لمنع توليد state مرتين
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
@@ -79,14 +79,17 @@ def login():
             return redirect(url_for("home"))
 
     form = LoginForm()
-    session["state"] = str(uuid.uuid4())
-    auth_url = _build_auth_url(scopes=Config.SCOPE, state=session["state"])
 
+    # ✅ توليد state فقط إذا غير موجود
+    if "state" not in session:
+        session["state"] = str(uuid.uuid4())
+
+    auth_url = _build_auth_url(scopes=Config.SCOPE, state=session["state"])
     print("➡️ [LOGIN] Redirecting to Microsoft with state:", session["state"])
+
     return render_template('login.html', title='Sign In', form=form, auth_url=auth_url)
 
 
-# ✅ تم تعديلها لإظهار المشاكل بالتفصيل
 @app.route(Config.REDIRECT_PATH)
 def authorized():
     print("🔄 [AUTHORIZED] Called with request.args:", dict(request.args))
