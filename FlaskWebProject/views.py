@@ -12,7 +12,7 @@ from flask_login import current_user, login_user, logout_user, login_required
 from FlaskWebProject.models import User, Post
 import msal
 import uuid
-import os  # تم إضافته هنا لدالة debug-env
+import os
 
 imageSourceUrl = 'https://' + app.config['BLOB_ACCOUNT'] + '.blob.core.windows.net/' + app.config['BLOB_CONTAINER'] + '/'
 
@@ -62,47 +62,70 @@ def post(id):
     )
 
 
+# ✅ تم تعديلها لإظهار session و state
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('home'))
 
+    print("🔁 [LOGIN] Opening /login")
+    print("🔁 [LOGIN] Session before setting state:", dict(session))
+
     if "user" in session:
         user = User.query.filter_by(username="admin").first()
         if user:
             login_user(user)
+            print("✅ [LOGIN] Logged in from existing session")
             return redirect(url_for("home"))
 
     form = LoginForm()
     session["state"] = str(uuid.uuid4())
     auth_url = _build_auth_url(scopes=Config.SCOPE, state=session["state"])
+
+    print("➡️ [LOGIN] Redirecting to Microsoft with state:", session["state"])
     return render_template('login.html', title='Sign In', form=form, auth_url=auth_url)
 
 
+# ✅ تم تعديلها لإظهار المشاكل بالتفصيل
 @app.route(Config.REDIRECT_PATH)
 def authorized():
+    print("🔄 [AUTHORIZED] Called with request.args:", dict(request.args))
+    print("🔄 [AUTHORIZED] Current session:", dict(session))
+
     if request.args.get('state') != session.get("state"):
-        return redirect(url_for("home"))
+        print("⚠️ [AUTHORIZED] State mismatch! Expected:", session.get("state"), "Got:", request.args.get("state"))
+        return redirect(url_for("login"))
+
     if "error" in request.args:
+        print("❌ [AUTHORIZED] Error from Microsoft:", request.args)
         return render_template("auth_error.html", result=request.args)
+
     if request.args.get('code'):
+        print("✅ [AUTHORIZED] Code received, requesting token...")
         cache = _load_cache()
         msal_app = _build_msal_app(cache=cache)
         result = msal_app.acquire_token_by_authorization_code(
             request.args['code'],
             scopes=Config.SCOPE,
             redirect_uri=url_for('authorized', _external=True))
+
         if "error" in result:
+            print("❌ [AUTHORIZED] Token error:", result)
             return render_template("auth_error.html", result=result)
+
         session["user"] = result.get("id_token_claims")
+        print("🔐 [AUTHORIZED] Logged in user:", session["user"])
+
         user = User.query.filter_by(username="admin").first()
         if user:
             login_user(user)
         _save_cache(cache)
-    return redirect(url_for('home'))
+        return redirect(url_for('home'))
+
+    print("⚠️ [AUTHORIZED] No code or error in request")
+    return redirect(url_for("login"))
 
 
-# ✅ تعديل logout لتوجيه المستخدم إلى صفحة goodbye
 @app.route('/logout')
 def logout():
     logout_user()
@@ -113,7 +136,6 @@ def logout():
     )
 
 
-# ✅ صفحة نهاية تسجيل الخروج
 @app.route('/goodbye')
 def goodbye():
     return render_template("goodbye.html", title="Logged Out")
