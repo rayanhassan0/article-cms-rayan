@@ -1,4 +1,25 @@
+# Python bytecode files
 __pycache__/
+*.py[cod]
+
+# Virtual environment folder
 venv/
+
+# Flask session files
 flask_session/
-*.pyc
+
+# Environment variables file
+.env
+
+# IDE/editor config files
+.vscode/
+.idea/
+
+# Pytest cache
+.pytest_cache/
+
+# Logs
+*.log
+
+# MacOS files
+.DS_Store
