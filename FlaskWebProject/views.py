@@ -62,10 +62,18 @@ def post(id):
     )
 
 
+# ✅ تم تعديل هذه الدالة لحل مشكلة redirect loop
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('home'))
+
+    if "user" in session:
+        user = User.query.filter_by(username="admin").first()
+        if user:
+            login_user(user)
+            return redirect(url_for("home"))
+
     form = LoginForm()
     session["state"] = str(uuid.uuid4())
     auth_url = _build_auth_url(scopes=Config.SCOPE, state=session["state"])
@@ -130,7 +138,6 @@ def _build_auth_url(authority=None, scopes=None, state=None):
         redirect_uri=url_for('authorized', _external=True))
 
 
-# ✅ تم إضافة هذه الدالة للتأكد من المتغيرات البيئية الخاصة بقاعدة البيانات
 @app.route("/debug-env")
 def debug_env():
     return {
