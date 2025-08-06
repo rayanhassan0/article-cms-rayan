@@ -62,7 +62,6 @@ def post(id):
     )
 
 
-# ✅ تم تعديل هذه الدالة لحل مشكلة redirect loop
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
@@ -103,14 +102,21 @@ def authorized():
     return redirect(url_for('home'))
 
 
+# ✅ تعديل logout لتوجيه المستخدم إلى صفحة goodbye
 @app.route('/logout')
 def logout():
     logout_user()
-    session.clear()  # ✅ حذف كل الجلسة لمنع أي إعادة توجيه خاطئة
+    session.clear()
     return redirect(
         Config.AUTHORITY + "/oauth2/v2.0/logout" +
-        "?post_logout_redirect_uri=" + url_for("login", _external=True)
+        "?post_logout_redirect_uri=" + url_for("goodbye", _external=True)
     )
+
+
+# ✅ صفحة نهاية تسجيل الخروج
+@app.route('/goodbye')
+def goodbye():
+    return render_template("goodbye.html", title="Logged Out")
 
 
 def _load_cache():
