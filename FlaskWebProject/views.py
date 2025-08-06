@@ -98,12 +98,11 @@ def authorized():
 @app.route('/logout')
 def logout():
     logout_user()
-    if session.get("user"):
-        session.clear()
-        return redirect(
-            Config.AUTHORITY + "/oauth2/v2.0/logout" +
-            "?post_logout_redirect_uri=" + url_for("login", _external=True))
-    return redirect(url_for('login'))
+    session.clear()  # ✅ حذف كل الجلسة لمنع أي إعادة توجيه خاطئة
+    return redirect(
+        Config.AUTHORITY + "/oauth2/v2.0/logout" +
+        "?post_logout_redirect_uri=" + url_for("login", _external=True)
+    )
 
 
 def _load_cache():
