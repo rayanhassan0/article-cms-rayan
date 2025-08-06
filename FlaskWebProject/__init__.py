@@ -10,7 +10,12 @@ from flask_session import Session
 
 app = Flask(__name__)
 app.config.from_object(Config)
-# TODO: Add any logging levels and handlers with app.logger
+
+# إضافة ProxyFix لحل مشكلة https مع Azure
+from werkzeug.middleware.proxy_fix import ProxyFix
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+
+# إعدادات الجلسات وقاعدة البيانات
 Session(app)
 db = SQLAlchemy(app)
 login = LoginManager(app)
