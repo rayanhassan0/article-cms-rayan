@@ -32,35 +32,48 @@ def login():
 @app.route(Config.REDIRECT_PATH)
 def authorized():
     if request.args.get('state') != session.get("state"):
-        return redirect(url_for("index"))  # حالة غير متطابقة
+        print("⚠️ State mismatch - possible CSRF attack")
+        return redirect(url_for("index"))
 
     if "error" in request.args:
-        app.logger.warning("Invalid login attempt: %s", request.args.get("error_description"))
+        print("❌ Microsoft returned an error:", request.args.get("error_description"))
+        app.logger.warning("❌ Invalid login attempt: %s", request.args.get("error_description"))
         return redirect(url_for("index"))
 
     if request.args.get('code'):
+        print("🔁 Received authorization code")
         cache = _load_cache()
         result = _build_msal_app(cache=cache).acquire_token_by_authorization_code(
             request.args['code'],
             scopes=Config.SCOPE,
-            redirect_uri=url_for('authorized', _external=True))
+            redirect_uri=url_for('authorized', _external=True)
+        )
+
         if "id_token_claims" in result:
             session["user"] = result["id_token_claims"]
             _save_cache(cache)
 
-            # ✅ تسجيل الدخول الناجح
-            username = session["user"].get("preferred_username", "Unknown user")
-            app.logger.info("Admin logged in successfully: %s", username)
+            # ✅ إنشاء مستخدم وتسجيل الدخول باستخدام Flask-Login
+            user = User(
+                id=session["user"].get("oid"),
+                name=session["user"].get("name"),
+                email=session["user"].get("preferred_username")
+            )
+            login_user(user)
+
+            print("✅ Admin logged in successfully:", user.email)
+            app.logger.info("✅ Admin logged in successfully: %s", user.email)
 
         else:
-            # ❌ تسجيل الدخول الفاشل
-            app.logger.warning("Invalid login attempt: Token not found")
+            print("❌ Invalid login attempt: Token not found")
+            app.logger.warning("❌ Invalid login attempt: Token not found")
+
     return redirect(url_for("index"))
 
 @app.route('/logout')
 def logout():
     session.clear()
-    return redirect(  # إعادة التوجيه لتسجيل الخروج من مايكروسوفت
+    return redirect(
         Config.AUTHORITY + "/oauth2/v2.0/logout" +
         "?post_logout_redirect_uri=" + url_for("index", _external=True))
 
