@@ -11,10 +11,10 @@ import uuid
 import logging
 import sys
 
-# ---------- Logging setup (to stdout so it shows in Azure Log Stream) ----------
+# ---------- Logging: إلى stdout عشان يظهر في Azure Log Stream ----------
 logger = logging.getLogger("app")
 if not logger.handlers:
-    handler = logging.StreamHandler(sys.stdout)  # مهم: يرسل للـ Log Stream
+    handler = logging.StreamHandler(sys.stdout)
     formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
@@ -26,11 +26,12 @@ imageSourceUrl = 'https://' + app.config["BLOB_ACCOUNT"] + '.blob.core.windows.n
 @app.route('/index')
 @login_required
 def index():
-    posts = Post.query.all()
+    posts = Post.query.order_by(Post.timestamp.desc()).all()
     return render_template('index.html', title='Home Page', posts=posts)
 
 @app.route('/login', methods=['GET'])
 def login():
+    # بداية عملية تسجيل الدخول
     session["state"] = str(uuid.uuid4())
     logger.info("AUTH: Begin login, state=%s", session["state"])
     auth_url = _build_auth_url(scopes=Config.SCOPE, state=session["state"])
@@ -38,21 +39,21 @@ def login():
 
 @app.route(Config.REDIRECT_PATH)
 def authorized():
-    # 1) STATE check
+    # 1) تحقق من STATE
     if request.args.get('state') != session.get("state"):
         logger.warning("LOGIN FAILED: state mismatch (possible CSRF). got=%s expected=%s",
                        request.args.get('state'), session.get('state'))
         flash("Login failed (state mismatch).", "warning")
         return redirect(url_for("index"))
 
-    # 2) Provider error
+    # 2) خطأ من المزوّد
     if "error" in request.args:
         desc = request.args.get("error_description")
         logger.warning("LOGIN FAILED: provider returned error: %s", desc)
         flash("Login failed (provider error).", "danger")
         return redirect(url_for("index"))
 
-    # 3) Authorization code exchange
+    # 3) تبادل كود التفويض
     if request.args.get('code'):
         logger.info("AUTH: Received authorization code")
         cache = _load_cache()
@@ -67,45 +68,33 @@ def authorized():
             flash("Login failed (token exchange error).", "danger")
             return redirect(url_for("index"))
 
-        # MSAL returns error in 'error' keys when it fails
+        # فشل التبادل
         if not result or ("access_token" not in result and "id_token" not in result and "id_token_claims" not in result):
             logger.warning("LOGIN FAILED: token exchange failed - result=%s", result)
             flash("Login failed (no token).", "danger")
             return redirect(url_for("index"))
 
-        # Success path
+        # نجاح: استخراج الهوية
         session["user"] = result.get("id_token_claims", {})
         _save_cache(cache)
 
-        # Extract identity details (best-effort)
-        oid = session["user"].get("oid") or session["user"].get("sub") or str(uuid.uuid4())
-        name = session["user"].get("name") or "Unknown"
         email = session["user"].get("preferred_username") or session["user"].get("upn") or ""
+        name  = session["user"].get("name") or (email.split("@")[0] if email else "Unknown")
+        username = email or name  # سنخزن هذا في users.username
 
-        # Optional: persist/create user if your model supports it (best-effort, no crash if schema differs)
+        # جلب/إنشاء المستخدم باليوزرنيم فقط (id int أوتوماتيك)
         try:
-            # إذا جدولك يدعم هذي الحقول
-            user = User(id=oid) if not hasattr(User, 'query') else User.query.get(oid) or User(id=oid)
-            if hasattr(user, "name"):
-                user.name = name
-            if hasattr(user, "email"):
-                user.email = email
-            if hasattr(user, "username") and not getattr(user, "username", None):
-                user.username = email or name  # للسكيمات القديمة
-            # خزّن إذا كان عندك DB فعّال
-            try:
-                if hasattr(db, "session"):
-                    db.session.merge(user)
-                    db.session.commit()
-            except Exception:
-                # تجاهل مشاكل السكيمة/الجداول
-                pass
+            user = User.query.filter_by(username=username).first()
+            if not user:
+                user = User(username=username)
+                db.session.add(user)
+                db.session.commit()  # الآن له id صحيح (int)
 
-            login_user(user)  # يفعّل Flask-Login session
-            logger.info("LOGIN SUCCESS: %s", email or name)
+            login_user(user)
+            logger.info("LOGIN SUCCESS: %s", username)
             flash("Logged in successfully.", "success")
         except Exception as e:
-            logger.exception("LOGIN FAILED: could not finalize user login: %s", e)
+            logger.exception("LOGIN FAILED: could not finalize user login (db/user): %s", e)
             flash("Login failed (finalize login).", "danger")
             return redirect(url_for("index"))
 
@@ -131,9 +120,15 @@ def post():
             filename = image_file.filename
             image_file.save(filename)
             _upload_image_to_blob(filename)
-        post = Post(title=form.title.data, content=form.content.data,
-                    author=getattr(current_user, "name", "admin"), image=filename)
-        db.session.add(post)
+
+        # ملاحظة: موديل Post عندك: title, author, body, image_path
+        p = Post(
+            title=form.title.data,
+            author=getattr(current_user, "username", "admin"),
+            body=getattr(form, "content", form.body).data if hasattr(form, "content") or hasattr(form, "body") else "",
+            image_path=filename
+        )
+        db.session.add(p)
         db.session.commit()
         flash('Post successfully created!')
         return redirect(url_for('index'))
@@ -167,6 +162,7 @@ def _build_auth_url(authority=None, scopes=None, state=None):
     )
 
 def _upload_image_to_blob(filename):
+    # ملاحظة: BlockBlobService قديمة لكن نبقيها كما هي لتوافق مشروعك
     from azure.storage.blob import BlockBlobService
     blob_service = BlockBlobService(
         account_name=app.config["BLOB_ACCOUNT"],
