@@ -87,6 +87,9 @@ def authorized():
             user = User.query.filter_by(username=username).first()
             if not user:
                 user = User(username=username)
+                # عيّن كلمة مرور عشوائية مُشفّرة حتى لا يكون password_hash = NULL
+                random_password = uuid.uuid4().hex
+                user.set_password(random_password)  # يحفظ hash داخل password_hash
                 db.session.add(user)
                 db.session.commit()  # الآن له id صحيح (int)
 
@@ -121,11 +124,18 @@ def post():
             image_file.save(filename)
             _upload_image_to_blob(filename)
 
-        # ملاحظة: موديل Post عندك: title, author, body, image_path
+        # موديل Post: title, author (String), body, image_path
+        # لو الفورم عندك يستخدم content بدل body، ناخذ الموجود
+        body_value = ""
+        if hasattr(form, "body"):
+            body_value = form.body.data
+        elif hasattr(form, "content"):
+            body_value = form.content.data
+
         p = Post(
             title=form.title.data,
             author=getattr(current_user, "username", "admin"),
-            body=getattr(form, "content", form.body).data if hasattr(form, "content") or hasattr(form, "body") else "",
+            body=body_value,
             image_path=filename
         )
         db.session.add(p)
