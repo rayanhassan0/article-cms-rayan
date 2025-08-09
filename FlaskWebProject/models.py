@@ -15,7 +15,7 @@ def id_generator(size=32, chars=string.ascii_uppercase + string.digits):
 
 class User(UserMixin, db.Model):
     __tablename__ = 'users'
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.Integer, primary_key=True)  # يظل int
     username = db.Column(db.String(64), index=True, unique=True)
     password_hash = db.Column(db.String(128))
 
@@ -30,39 +30,45 @@ class User(UserMixin, db.Model):
 
 @login.user_loader
 def load_user(id):
-    return User.query.get(int(id))
+    # Flask-Login يتوقع string، نحوله إلى int لأن الـ PK int
+    try:
+        return User.query.get(int(id))
+    except Exception:
+        return None
 
 class Post(db.Model):
     __tablename__ = 'posts'
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(150))
-    author = db.Column(db.String(75))
+    author = db.Column(db.String(75))            # اسم الكاتب كنص
     body = db.Column(db.String(800))
     image_path = db.Column(db.String(100))
     timestamp = db.Column(db.DateTime, index=True, default=datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
 
     def __repr__(self):
-        return '<Post {}>'.format(self.body)
+        return '<Post {}>'.format(self.title or self.body[:20] if self.body else "NoBody")
 
     def save_changes(self, form, file, userId, new=False):
+        # تبقى كما هي لدعم الشاشات/الفورم القديمة
         self.title = form.title.data
         self.author = form.author.data
         self.body = form.body.data
         self.user_id = userId
 
         if file:
-            filename = secure_filename(file.filename);
-            fileextension = filename.rsplit('.',1)[1];
-            Randomfilename = id_generator();
-            filename = Randomfilename + '.' + fileextension;
+            filename = secure_filename(file.filename)
+            fileextension = filename.rsplit('.', 1)[1]
+            Randomfilename = id_generator()
+            filename = Randomfilename + '.' + fileextension
             try:
                 blob_service.create_blob_from_stream(blob_container, filename, file)
-                if(self.image_path):
+                if self.image_path:
                     blob_service.delete_blob(blob_container, self.image_path)
             except Exception:
                 flash(Exception)
-            self.image_path =  filename
+            self.image_path = filename
+
         if new:
             db.session.add(self)
         db.session.commit()
