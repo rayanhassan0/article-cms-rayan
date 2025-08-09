@@ -118,7 +118,7 @@ def post():
     form = PostForm()
     if form.validate_on_submit():
         filename = None
-        if form.image.data:
+        if getattr(form, "image", None) and form.image.data:
             image_file = form.image.data
             filename = image_file.filename
             image_file.save(filename)
@@ -143,6 +143,12 @@ def post():
         flash('Post successfully created!')
         return redirect(url_for('index'))
     return render_template('post.html', title='Create Post', form=form)
+
+# اختصار للمسار /new_post ويطبّق نفس حماية تسجيل الدخول
+@app.route('/new_post', methods=['GET', 'POST'])
+@login_required
+def new_post():
+    return post()
 
 # ------------------ MSAL Helper Functions ------------------
 
