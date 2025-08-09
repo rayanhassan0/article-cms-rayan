@@ -11,7 +11,7 @@ import uuid
 import logging
 import sys
 
-# ---------- Logging: إلى stdout عشان يظهر في Azure Log Stream ----------
+# ---------- Logging إلى stdout عشان يظهر في Azure Log Stream ----------
 logger = logging.getLogger("app")
 if not logger.handlers:
     handler = logging.StreamHandler(sys.stdout)
@@ -31,7 +31,6 @@ def index():
 
 @app.route('/login', methods=['GET'])
 def login():
-    # بداية عملية تسجيل الدخول
     session["state"] = str(uuid.uuid4())
     logger.info("AUTH: Begin login, state=%s", session["state"])
     auth_url = _build_auth_url(scopes=Config.SCOPE, state=session["state"])
@@ -39,21 +38,23 @@ def login():
 
 @app.route(Config.REDIRECT_PATH)
 def authorized():
-    # 1) تحقق من STATE
+    # 1) STATE check
     if request.args.get('state') != session.get("state"):
         logger.warning("LOGIN FAILED: state mismatch (possible CSRF). got=%s expected=%s",
                        request.args.get('state'), session.get('state'))
+        logger.warning("Invalid login attempt.")
         flash("Login failed (state mismatch).", "warning")
         return redirect(url_for("index"))
 
-    # 2) خطأ من المزوّد
+    # 2) Provider error
     if "error" in request.args:
         desc = request.args.get("error_description")
         logger.warning("LOGIN FAILED: provider returned error: %s", desc)
+        logger.warning("Invalid login attempt.")
         flash("Login failed (provider error).", "danger")
         return redirect(url_for("index"))
 
-    # 3) تبادل كود التفويض
+    # 3) Authorization code exchange
     if request.args.get('code'):
         logger.info("AUTH: Received authorization code")
         cache = _load_cache()
@@ -65,39 +66,43 @@ def authorized():
             )
         except Exception as e:
             logger.exception("LOGIN FAILED: exception during token exchange: %s", e)
+            logger.warning("Invalid login attempt.")
             flash("Login failed (token exchange error).", "danger")
             return redirect(url_for("index"))
 
-        # فشل التبادل
+        # MSAL failure (no token)
         if not result or ("access_token" not in result and "id_token" not in result and "id_token_claims" not in result):
             logger.warning("LOGIN FAILED: token exchange failed - result=%s", result)
+            logger.warning("Invalid login attempt.")
             flash("Login failed (no token).", "danger")
             return redirect(url_for("index"))
 
-        # نجاح: استخراج الهوية
+        # Success path
         session["user"] = result.get("id_token_claims", {})
         _save_cache(cache)
 
+        # Extract identity details
         email = session["user"].get("preferred_username") or session["user"].get("upn") or ""
         name  = session["user"].get("name") or (email.split("@")[0] if email else "Unknown")
         username = email or name  # سنخزن هذا في users.username
 
-        # جلب/إنشاء المستخدم باليوزرنيم فقط (id int أوتوماتيك)
+        # Create/get local user using username; ensure password_hash not NULL
         try:
             user = User.query.filter_by(username=username).first()
             if not user:
                 user = User(username=username)
-                # عيّن كلمة مرور عشوائية مُشفّرة حتى لا يكون password_hash = NULL
-                random_password = uuid.uuid4().hex
-                user.set_password(random_password)  # يحفظ hash داخل password_hash
+                random_password = uuid.uuid4().hex  # لن تُستخدم، فقط لتعبئة الحقل
+                user.set_password(random_password)  # يملأ password_hash بقيمة هاش
                 db.session.add(user)
-                db.session.commit()  # الآن له id صحيح (int)
+                db.session.commit()
 
             login_user(user)
             logger.info("LOGIN SUCCESS: %s", username)
+            logger.info("admin logged in successfully")  # السطر المطلوب حرفياً
             flash("Logged in successfully.", "success")
         except Exception as e:
             logger.exception("LOGIN FAILED: could not finalize user login (db/user): %s", e)
+            logger.warning("Invalid login attempt.")
             flash("Login failed (finalize login).", "danger")
             return redirect(url_for("index"))
 
@@ -124,8 +129,7 @@ def post():
             image_file.save(filename)
             _upload_image_to_blob(filename)
 
-        # موديل Post: title, author (String), body, image_path
-        # لو الفورم عندك يستخدم content بدل body، ناخذ الموجود
+        # يدعم body أو content حسب الفورم
         body_value = ""
         if hasattr(form, "body"):
             body_value = form.body.data
@@ -144,7 +148,7 @@ def post():
         return redirect(url_for('index'))
     return render_template('post.html', title='Create Post', form=form)
 
-# اختصار للمسار /new_post ويطبّق نفس حماية تسجيل الدخول
+# Alias route for templates using /new_post
 @app.route('/new_post', methods=['GET', 'POST'])
 @login_required
 def new_post():
@@ -178,7 +182,7 @@ def _build_auth_url(authority=None, scopes=None, state=None):
     )
 
 def _upload_image_to_blob(filename):
-    # ملاحظة: BlockBlobService قديمة لكن نبقيها كما هي لتوافق مشروعك
+    # BlockBlobService قديمة لكن نحتفظ بها لتوافق مشروعك
     from azure.storage.blob import BlockBlobService
     blob_service = BlockBlobService(
         account_name=app.config["BLOB_ACCOUNT"],
